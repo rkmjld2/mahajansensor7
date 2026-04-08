@@ -130,7 +130,56 @@ def stop():
 @app.route("/")
 def home():
     return render_template("index.html")
+# -------- QUERY COMMAND --------
+@app.route("/query")
+def query():
+    cmd = request.args.get("cmd")
 
+    try:
+        if not cmd:
+            return "No command"
+
+        parts = cmd.strip().split()
+
+        # -------- DELETE --------
+        if parts[0].lower() == "delete" and len(parts) == 3:
+            start = int(parts[1])
+            end = int(parts[2])
+
+            with open(DATA_FILE, "r") as f:
+                rows = list(csv.DictReader(f))
+
+            rows = [r for r in rows if not (start <= int(r["id"]) <= end)]
+
+            with open(DATA_FILE, "w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=["id","sensor1","sensor2","sensor3","time"])
+                writer.writeheader()
+                writer.writerows(rows)
+
+            return "Deleted"
+
+        # -------- SEARCH --------
+        elif parts[0].lower() == "search" and len(parts) == 3:
+            start = int(parts[1])
+            end = int(parts[2])
+
+            with open(DATA_FILE, "r") as f:
+                rows = list(csv.DictReader(f))
+
+            result = [r for r in rows if start <= int(r["id"]) <= end]
+
+            return jsonify(result)
+
+        # -------- SHOW ALL --------
+        elif parts[0].lower() == "all":
+            with open(DATA_FILE, "r") as f:
+                return jsonify(list(csv.DictReader(f)))
+
+        else:
+            return "Unknown Command"
+
+    except Exception as e:
+        return "Error: " + str(e)
 
 # -------- RUN --------
 if __name__ == "__main__":
