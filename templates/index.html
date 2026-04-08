@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sensor Dashboard</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body { font-family: Arial; padding:20px; }
+        table, th, td { border:1px solid black; border-collapse:collapse; padding:5px; }
+        button { margin:5px; }
+    </style>
+</head>
+
+<body>
+
+<h2>Sensor Dashboard</h2>
+
+<!-- STATUS -->
+Status: <span id="status">Checking...</span>
+
+<br><br>
+
+<!-- CONTROLS -->
+<button onclick="start()">Start</button>
+<button onclick="stop()">Stop</button>
+<button onclick="downloadCSV()">Download CSV</button>
+
+<br><br>
+
+<!-- SEARCH -->
+<h3>Search</h3>
+
+Start ID: <input type="number" id="startId">
+End ID: <input type="number" id="endId">
+
+<br><br>
+
+Start Date: <input type="datetime-local" id="startDate">
+End Date: <input type="datetime-local" id="endDate">
+
+<br><br>
+
+<button onclick="filterData()">Filter</button>
+
+<br><br>
+
+<!-- TABLE -->
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>S1</th>
+<th>S2</th>
+<th>S3</th>
+<th>Time</th>
+</tr>
+</thead>
+
+<tbody id="data"></tbody>
+</table>
+
+<br>
+
+<!-- GRAPH -->
+<canvas id="chart" height="100"></canvas>
+
+<script>
+
+let chart;
+
+// -------- LOAD DATA --------
+async function loadData(){
+    let res = await fetch('/api/all');
+    let data = await res.json();
+
+    let html = "";
+    let labels=[], s1=[], s2=[], s3=[];
+
+    data.slice(-50).forEach(r=>{
+        html += `<tr>
+        <td>${r.id}</td>
+        <td>${r.sensor1}</td>
+        <td>${r.sensor2}</td>
+        <td>${r.sensor3}</td>
+        <td>${r.time}</td>
+        </tr>`;
+
+        labels.push(r.time);
+        s1.push(r.sensor1);
+        s2.push(r.sensor2);
+        s3.push(r.sensor3);
+    });
+
+    document.getElementById("data").innerHTML = html;
+
+    drawGraph(labels,s1,s2,s3);
+}
+
+// -------- GRAPH --------
+function drawGraph(labels,s1,s2,s3){
+    if(chart) chart.destroy();
+
+    chart = new Chart(document.getElementById("chart"), {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {label:"S1", data:s1},
+                {label:"S2", data:s2},
+                {label:"S3", data:s3}
+            ]
+        }
+    });
+}
+
+// -------- STATUS --------
+async function checkStatus(){
+    let res = await fetch('/status');
+    let data = await res.json();
+    document.getElementById("status").innerText = data.status;
+}
+
+// -------- FILTER --------
+function filterData(){
+    let sid = document.getElementById("startId").value;
+    let eid = document.getElementById("endId").value;
+
+    let sd = document.getElementById("startDate").value;
+    let ed = document.getElementById("endDate").value;
+
+    let rows = document.querySelectorAll("#data tr");
+
+    rows.forEach(r=>{
+        let id = parseInt(r.children[0].innerText);
+        let time = r.children[4].innerText;
+
+        let show = true;
+
+        if(sid && eid){
+            if(id < sid || id > eid) show=false;
+        }
+
+        if(sd && ed){
+            if(time < sd || time > ed) show=false;
+        }
+
+        r.style.display = show ? "" : "none";
+    });
+}
+
+// -------- CONTROL --------
+function start(){ fetch('/start'); }
+function stop(){ fetch('/stop'); }
+
+// -------- DOWNLOAD --------
+function downloadCSV(){
+    window.location.href="/download";
+}
+
+// -------- AUTO REFRESH --------
+setInterval(loadData,5000);
+setInterval(checkStatus,5000);
+
+loadData();
+checkStatus();
+
+</script>
+
+</body>
+</html>
