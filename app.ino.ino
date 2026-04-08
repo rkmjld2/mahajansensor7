@@ -10,7 +10,7 @@ const char* ssid = "Airtel_56";
 const char* password = "Raviuma5658";
 
 // SERVER
-String serverName = "https://mahajansensor6.onrender.com/api/data";
+String serverName = "https://mahajansensor7.onrender.com/api/data";
 String apiKey = "12b5112c62284ea0b3da0039f298ec7a85ac9a1791044052b6df970640afb1c5";
 
 // SD
