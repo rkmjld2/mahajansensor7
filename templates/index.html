@@ -1,35 +1,42 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Sensor Dashboard</title>
+<title>Sensor Dashboard</title>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-    <style>
-        body { font-family: Arial; padding:20px; }
-        table, th, td { border:1px solid black; border-collapse:collapse; padding:5px; }
-        button { margin:5px; }
-    </style>
+<style>
+body { font-family: Arial; padding:20px; }
+table, th, td { border:1px solid black; border-collapse:collapse; padding:5px; }
+button { margin:5px; }
+</style>
 </head>
 
 <body>
 
 <h2>Sensor Dashboard</h2>
 
-<!-- STATUS -->
 Status: <span id="status">Checking...</span>
 
 <br><br>
 
-<!-- CONTROLS -->
 <button onclick="start()">Start</button>
 <button onclick="stop()">Stop</button>
 <button onclick="downloadCSV()">Download CSV</button>
 
-<br><br>
+<hr>
+
+<!-- QUERY BOX -->
+<h3>Command Box</h3>
+<input type="text" id="cmd" placeholder="Example: delete 10 20 OR all">
+<button onclick="runQuery()">Run</button>
+
+<p id="queryResult"></p>
+
+<hr>
 
 <!-- SEARCH -->
-<h3>Search</h3>
+<h3>Search Filter</h3>
 
 Start ID: <input type="number" id="startId">
 End ID: <input type="number" id="endId">
@@ -41,9 +48,26 @@ End Date: <input type="datetime-local" id="endDate">
 
 <br><br>
 
-<button onclick="filterData()">Filter</button>
+<button onclick="filterData()">Apply Filter</button>
+
+<hr>
+
+<!-- GRAPH CONTROL -->
+<h3>Graph Control</h3>
+
+<select id="graphType">
+<option value="line">Line</option>
+<option value="bar">Bar</option>
+<option value="pie">Pie</option>
+</select>
+
+<button onclick="generateGraph()">Show Graph</button>
 
 <br><br>
+
+<canvas id="chart" height="100"></canvas>
+
+<hr>
 
 <!-- TABLE -->
 <table>
@@ -60,24 +84,22 @@ End Date: <input type="datetime-local" id="endDate">
 <tbody id="data"></tbody>
 </table>
 
-<br>
-
-<!-- GRAPH -->
-<canvas id="chart" height="100"></canvas>
-
 <script>
 
 let chart;
+let fullData = [];
 
 // -------- LOAD DATA --------
 async function loadData(){
     let res = await fetch('/api/all');
-    let data = await res.json();
+    fullData = await res.json();
+    displayData(fullData);
+}
 
-    let html = "";
-    let labels=[], s1=[], s2=[], s3=[];
-
-    data.slice(-50).forEach(r=>{
+// -------- DISPLAY --------
+function displayData(data){
+    let html="";
+    data.forEach(r=>{
         html += `<tr>
         <td>${r.id}</td>
         <td>${r.sensor1}</td>
@@ -85,24 +107,68 @@ async function loadData(){
         <td>${r.sensor3}</td>
         <td>${r.time}</td>
         </tr>`;
-
-        labels.push(r.time);
-        s1.push(r.sensor1);
-        s2.push(r.sensor2);
-        s3.push(r.sensor3);
     });
-
     document.getElementById("data").innerHTML = html;
-
-    drawGraph(labels,s1,s2,s3);
 }
 
+// -------- FILTER --------
+function filterData(){
+
+    let sid = document.getElementById("startId").value;
+    let eid = document.getElementById("endId").value;
+
+    let sd = document.getElementById("startDate").value;
+    let ed = document.getElementById("endDate").value;
+
+    let filtered = fullData.filter(r=>{
+        let ok = true;
+
+        // ✅ FIX: convert to number
+        let id = parseInt(r.id);
+
+        if(sid && eid){
+            if(id < parseInt(sid) || id > parseInt(eid)) ok = false;
+        }
+
+        // ✅ FIX: proper date comparison
+        if(sd && ed){
+            let rowTime = new Date(r.time).getTime();
+            let startTime = new Date(sd).getTime();
+            let endTime = new Date(ed).getTime();
+
+            if(rowTime < startTime || rowTime > endTime) ok = false;
+        }
+
+        return ok;
+    });
+
+    displayData(filtered);
+}
 // -------- GRAPH --------
-function drawGraph(labels,s1,s2,s3){
+function generateGraph(){
+
+    let type = document.getElementById("graphType").value;
+
+    let rows = document.querySelectorAll("#data tr");
+
+    let labels=[], s1=[], s2=[], s3=[];
+
+    rows.forEach(r=>{
+        // ✅ ONLY USE VISIBLE ROWS
+        if(r.style.display !== "none"){
+
+            labels.push(r.children[4].innerText);
+            s1.push(parseFloat(r.children[1].innerText));
+            s2.push(parseFloat(r.children[2].innerText));
+            s3.push(parseFloat(r.children[3].innerText));
+
+        }
+    });
+
     if(chart) chart.destroy();
 
     chart = new Chart(document.getElementById("chart"), {
-        type: 'line',
+        type: type,
         data: {
             labels: labels,
             datasets: [
@@ -112,6 +178,17 @@ function drawGraph(labels,s1,s2,s3){
             ]
         }
     });
+}    
+// -------- QUERY --------
+async function runQuery(){
+    let cmd = document.getElementById("cmd").value;
+
+    let res = await fetch('/query?cmd=' + cmd);
+    let text = await res.text();
+
+    document.getElementById("queryResult").innerText = text;
+
+    loadData();
 }
 
 // -------- STATUS --------
@@ -121,44 +198,12 @@ async function checkStatus(){
     document.getElementById("status").innerText = data.status;
 }
 
-// -------- FILTER --------
-function filterData(){
-    let sid = document.getElementById("startId").value;
-    let eid = document.getElementById("endId").value;
-
-    let sd = document.getElementById("startDate").value;
-    let ed = document.getElementById("endDate").value;
-
-    let rows = document.querySelectorAll("#data tr");
-
-    rows.forEach(r=>{
-        let id = parseInt(r.children[0].innerText);
-        let time = r.children[4].innerText;
-
-        let show = true;
-
-        if(sid && eid){
-            if(id < sid || id > eid) show=false;
-        }
-
-        if(sd && ed){
-            if(time < sd || time > ed) show=false;
-        }
-
-        r.style.display = show ? "" : "none";
-    });
-}
-
 // -------- CONTROL --------
 function start(){ fetch('/start'); }
 function stop(){ fetch('/stop'); }
+function downloadCSV(){ window.location.href="/download"; }
 
-// -------- DOWNLOAD --------
-function downloadCSV(){
-    window.location.href="/download";
-}
-
-// -------- AUTO REFRESH --------
+// -------- AUTO --------
 setInterval(loadData,5000);
 setInterval(checkStatus,5000);
 
