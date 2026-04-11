@@ -2,13 +2,13 @@
 <html>
 <head>
 <title>Sensor Dashboard</title>
-
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
 body { font-family: Arial; padding:20px; }
 table, th, td { border:1px solid black; border-collapse:collapse; padding:5px; }
 button { margin:5px; }
+input { margin:5px; }
 </style>
 </head>
 
@@ -22,65 +22,52 @@ Status: <span id="status">Checking...</span>
 
 <button onclick="start()">Start</button>
 <button onclick="stop()">Stop</button>
+<button onclick="syncSD()">Load Full SD Data</button>
+<button onclick="resetView()">Reset View</button>
+<button onclick="showFullData()">Show Full Data</button>
 <button onclick="downloadCSV()">Download CSV</button>
 
 <hr>
 
-<!-- QUERY BOX -->
-<h3>Command Box</h3>
-<input type="text" id="cmd" placeholder="Example: delete 10 20 OR all">
-<button onclick="runQuery()">Run</button>
+<h3>⚙️ Command Box</h3>
 
-<p id="queryResult"></p>
+<input type="text" id="cmd" placeholder="CLEAR_SD or DELETE 100,200" style="width:300px;">
+<button onclick="runCommand()">Run</button>
+
+<p id="cmdResult"></p>
 
 <hr>
 
-<!-- SEARCH -->
-<h3>Search Filter</h3>
+<h3>🔍 Search</h3>
 
-Start ID: <input type="number" id="startId">
-End ID: <input type="number" id="endId">
+ID From: <input type="number" id="idFrom">
+ID To: <input type="number" id="idTo">
+<button onclick="searchByID()">Search ID</button>
 
 <br><br>
 
 Start Date: <input type="datetime-local" id="startDate">
 End Date: <input type="datetime-local" id="endDate">
+<button onclick="searchByDate()">Search Date</button>
 
-<br><br>
+<br>
 
-<button onclick="filterData()">Apply Filter</button>
-
-<hr>
-
-<!-- GRAPH CONTROL -->
-<h3>Graph Control</h3>
-
-<select id="graphType">
-<option value="line">Line</option>
-<option value="bar">Bar</option>
-<option value="pie">Pie</option>
-</select>
-
-<button onclick="generateGraph()">Show Graph</button>
-
-<br><br>
-
-<canvas id="chart" height="100"></canvas>
+<button onclick="showAll()">Show All</button>
+<button onclick="showGraph()">Show Graph</button>
 
 <hr>
 
-<!-- TABLE -->
+<h3>📊 Graph</h3>
+<canvas id="chart"></canvas>
+
+<hr>
+
 <table>
 <thead>
 <tr>
-<th>ID</th>
-<th>S1</th>
-<th>S2</th>
-<th>S3</th>
-<th>Time</th>
+<th>ID</th><th>S1</th><th>S2</th><th>S3</th><th>Time</th>
 </tr>
 </thead>
-
 <tbody id="data"></tbody>
 </table>
 
@@ -88,15 +75,23 @@ End Date: <input type="datetime-local" id="endDate">
 
 let chart;
 let fullData = [];
+let filteredData = [];
 
-// -------- LOAD DATA --------
+// ✅ NEW CONTROL FLAG
+let mode = "live"; // live | sd | search
+
+// LOAD DATA (ONLY IN LIVE MODE)
 async function loadData(){
+
+    if(mode !== "live") return;
+
     let res = await fetch('/api/all');
     fullData = await res.json();
+    filteredData = fullData;
     displayData(fullData);
 }
 
-// -------- DISPLAY --------
+// DISPLAY TABLE
 function displayData(data){
     let html="";
     data.forEach(r=>{
@@ -111,64 +106,17 @@ function displayData(data){
     document.getElementById("data").innerHTML = html;
 }
 
-// -------- FILTER --------
-function filterData(){
-
-    let sid = document.getElementById("startId").value;
-    let eid = document.getElementById("endId").value;
-
-    let sd = document.getElementById("startDate").value;
-    let ed = document.getElementById("endDate").value;
-
-    let filtered = fullData.filter(r=>{
-        let ok = true;
-
-        // ✅ FIX: convert to number
-        let id = parseInt(r.id);
-
-        if(sid && eid){
-            if(id < parseInt(sid) || id > parseInt(eid)) ok = false;
-        }
-
-        // ✅ FIX: proper date comparison
-        if(sd && ed){
-            let rowTime = new Date(r.time).getTime();
-            let startTime = new Date(sd).getTime();
-            let endTime = new Date(ed).getTime();
-
-            if(rowTime < startTime || rowTime > endTime) ok = false;
-        }
-
-        return ok;
-    });
-
-    displayData(filtered);
-}
-// -------- GRAPH --------
-function generateGraph(){
-
-    let type = document.getElementById("graphType").value;
-
-    let rows = document.querySelectorAll("#data tr");
-
-    let labels=[], s1=[], s2=[], s3=[];
-
-    rows.forEach(r=>{
-        // ✅ ONLY USE VISIBLE ROWS
-        if(r.style.display !== "none"){
-
-            labels.push(r.children[4].innerText);
-            s1.push(parseFloat(r.children[1].innerText));
-            s2.push(parseFloat(r.children[2].innerText));
-            s3.push(parseFloat(r.children[3].innerText));
-
-        }
-    });
+// GRAPH
+function drawGraph(data){
+    let labels = data.map(r => r.id);
+    let s1 = data.map(r => r.sensor1);
+    let s2 = data.map(r => r.sensor2);
+    let s3 = data.map(r => r.sensor3);
 
     if(chart) chart.destroy();
 
     chart = new Chart(document.getElementById("chart"), {
-        type: type,
+        type: 'line',
         data: {
             labels: labels,
             datasets: [
@@ -178,32 +126,146 @@ function generateGraph(){
             ]
         }
     });
-}    
-// -------- QUERY --------
-async function runQuery(){
+}
+
+// SEARCH ID
+function searchByID(){
+
+    mode = "search";
+
+    let from = parseInt(idFrom.value);
+    let to = parseInt(idTo.value);
+
+    filteredData = fullData.filter(r => r.id >= from && r.id <= to);
+    displayData(filteredData);
+
+    status.innerText = "Search (ID)";
+}
+
+// SEARCH DATE
+    function searchByDate(){
+
+    mode = "search";
+
+    let start = document.getElementById("startDate").value;
+    let end = document.getElementById("endDate").value;
+
+    if(!start || !end){
+        alert("Select start and end date with time");
+        return;
+    }
+
+    // Convert input to match SD format
+    let startTime = start.replace("T"," ") + ":00";
+    let endTime   = end.replace("T"," ") + ":59";
+
+    filteredData = fullData.filter(r=>{
+        return r.time >= startTime && r.time <= endTime;
+    });
+
+    displayData(filteredData);
+
+    status.innerText = "Search (Date + Time)";
+}
+// SHOW ALL
+function showAll(){
+    mode = "search";
+    filteredData = fullData;
+    displayData(fullData);
+    status.innerText = "Showing All (Frozen)";
+}
+
+// GRAPH BUTTON
+function showGraph(){
+    drawGraph(filteredData);
+}
+
+// COMMAND
+async function runCommand(){
+
+    mode = "search"; // freeze
+
     let cmd = document.getElementById("cmd").value;
 
-    let res = await fetch('/query?cmd=' + cmd);
+    if(!cmd){
+        alert("Enter command");
+        return;
+    }
+
+    let res = await fetch('/sendcmd?cmd=' + cmd);
     let text = await res.text();
 
-    document.getElementById("queryResult").innerText = text;
+    document.getElementById("cmdResult").innerText = text;
 
-    loadData();
+    status.innerText = "Command Executed (Frozen)";
 }
 
-// -------- STATUS --------
-async function checkStatus(){
-    let res = await fetch('/status');
-    let data = await res.json();
-    document.getElementById("status").innerText = data.status;
+// SYNC SD
+async function syncSD(){
+
+    mode = "sd";
+
+    status.innerText = "Sync in progress...";
+
+    await fetch('/sendcmd?cmd=SYNC');
+
+    setTimeout(async ()=>{
+        await showFullData();
+        status.innerText = "Full SD Data Loaded";
+    },15000);
 }
 
-// -------- CONTROL --------
+// RESET (MAIN FIX)
+async function resetView(){
+
+    mode = "live";
+
+    await fetch('/api/reset');
+
+    fullData = [];
+    filteredData = [];
+
+    await loadData();
+
+    status.innerText = "Live View";
+}
+
+// FULL VIEW
+async function showFullData(){
+
+    mode = "sd";
+
+    await fetch('/api/fullview');
+    let res = await fetch('/api/all');
+
+    fullData = await res.json();
+    filteredData = fullData;
+
+    displayData(fullData);
+
+    status.innerText = "Full Data View";
+}
+
+// BASIC
 function start(){ fetch('/start'); }
 function stop(){ fetch('/stop'); }
 function downloadCSV(){ window.location.href="/download"; }
 
-// -------- AUTO --------
+// STATUS
+async function checkStatus(){
+    try{
+        let res = await fetch('/status');
+        let data = await res.json();
+
+        document.getElementById("status").innerText =
+            data.status + " | Mode: " + mode;
+
+    }catch{
+        document.getElementById("status").innerText = "Checking";
+    }
+}
+
+// AUTO REFRESH ONLY FOR LIVE
 setInterval(loadData,5000);
 setInterval(checkStatus,5000);
 
